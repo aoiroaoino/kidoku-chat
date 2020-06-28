@@ -16,39 +16,71 @@ object usecase {
       fetchMessages: FetchMessages
   ) extends ConsoleChat {
     import ConsoleChatImpl._
-    override def run(): Unit =
+
+    override def run(): Unit = {
+      println(WelcomeMessage)
+      print(Prompt)
       Iterator
         .continually(StdIn.readLine())
         .takeWhile(!quit.matches(_))
         .map {
           case post(name, msg) =>
             postMessage.run(name, msg).map {
-              case PostMessage.Result.Success        => "[送信に成功しました]"
-              case PostMessage.Result.MemberNotFound => "[メンバー登録してください]"
+              case PostMessage.Result.Success        => PostSuccessMessage
+              case PostMessage.Result.MemberNotFound => RequireMemberMessage
             }
           case fetch(name) =>
             fetchMessages.run(name).map {
               case FetchMessages.Result.Success(m) =>
-                "=====\n" + m
-                  .map { n =>
-                    s"${n.name}「${n.message}」(既読 ${n.readCount})"
+                if (m.isEmpty) {
+                  MessageNotFound
+                } else {
+                  val buf = new StringBuilder()
+                  m.foreach {
+                    case FetchMessages.MessageView(name, message, readCount) =>
+                      buf.append("---\n")
+                      buf.append(s"$name 「$message」")
+                      buf.append(if (readCount == 0) "" else s"(既読 $readCount)")
+                      buf.append("\n")
                   }
-                  .mkString("\n")
-              case FetchMessages.Result.MemberNotFound => "[メンバー登録してください]"
+                  green(buf.toString)
+                }
+              case FetchMessages.Result.MemberNotFound => RequireMemberMessage
             }
+          case input if input.isEmpty =>
+            Success("")
           case input =>
-            s"[不正な入力です: $input]"
+            Success(InvalidInputMessage(input))
         }
-        .foreach(println)
-//        .foreach {
-//          case Success(v) => println(v)
-//          case Failure(_) => println("[処理に失敗しました]")
-//        }
+        .foreach {
+          case Success(v) if v.isEmpty =>
+            print("\r" + Prompt)
+          case Success(v) =>
+            println(v)
+            print(Prompt)
+          case Failure(_) =>
+            println(FailureMessage)
+        }
+    }
   }
   object ConsoleChatImpl {
     val quit = """:quit|:q""".r
     val post = """\s*(\S+)\s+post\s+([\S|\s]+)""".r
     val fetch = """\s*(\S+)\s+fetch\s*""".r
+
+    def red(s: String): String = Console.RED + s + Console.RESET
+    def green(s: String): String = Console.GREEN + s + Console.RESET
+    def cyan(s: String): String = Console.CYAN + s + Console.RESET
+    def yellow(s: String): String = Console.YELLOW + s + Console.RESET
+    def magenta(s: String): String = Console.MAGENTA + s + Console.RESET
+
+    val WelcomeMessage = yellow("\nWelcome to serviver-challenge chat!!\n")
+    val PostSuccessMessage = green("[送信に成功しました]\n")
+    val MessageNotFound = green("[メッセージがありません]\n")
+    val FailureMessage = red("[処理に失敗しました]\n")
+    val RequireMemberMessage = red("[メンバー登録してください]\n")
+    def InvalidInputMessage(input: String) = red(s"[不正な入力です: $input]\n")
+    val Prompt = magenta("> ")
   }
 
   // ===
@@ -140,7 +172,7 @@ object usecase {
               limit = 10
             )
             view <- traverseTry(messages) { msg =>
-              getMemberName.run(member.id).map { n =>
+              getMemberName.run(msg.postBy).map { n =>
                 MessageView(
                   name = n,
                   message = msg.body,
